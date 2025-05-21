@@ -1,11 +1,15 @@
 #include "ConnectedState.hpp"
 #include "NotConnectedState.hpp"
-#include "ViewingSmsListState.hpp" 
-#include <vector> // Include vector
+#include "ViewingSmsListState.hpp"
+#include "ComposingSmsState.hpp"
+#include "IncomingCallState.hpp"
+#include "CallingState.hpp"
+#include "UeGui/IListViewMode.hpp"
+#include "UeGui/ITextMode.hpp"
+#include <vector>
 
 namespace ue
 {
-    // Constructor calls showMainMenu now
     ConnectedState::ConnectedState(Context &context)
         : BaseState(context, "ConnectedState")
     {
@@ -15,7 +19,7 @@ namespace ue
     void ConnectedState::showMainMenu()
     {
         logger.logInfo("Entering Main Menu");
-        context.user.showConnected(); // This UserPort method now shows the menu
+        context.user.showConnected();
     }
 
     void ConnectedState::handleDisconnected()
@@ -26,44 +30,74 @@ namespace ue
 
     void ConnectedState::handleSmsReceived(common::PhoneNumber from, std::string text)
     {
-        logger.logInfo("SMS received from: ", from); // Log removed text for brevity
-        std::size_t smsIndex = context.smsDb.addSms(from, text);
+        logger.logInfo("SMS received from: ", from);
+        std::size_t smsIndex = context.smsDb.addReceivedSms(from, text);
         logger.logDebug("SMS stored at index: ", smsIndex);
-        context.user.showNewSms(); // Show notification, but stay in main menu
+        context.user.showNewSms();
     }
 
-    // Handle selection from the main menu list
     void ConnectedState::handleUiAction(std::optional<std::size_t> selectedIndex)
     {
-        if (!selectedIndex.has_value()) {
+
+        if (!selectedIndex.has_value())
+        {
             logger.logInfo("UI Action received with no index in Main Menu");
             return;
         }
 
-        std::size_t index = selectedIndex.value();
-        logger.logInfo("Main menu action selected: index ", index);
+        logger.logInfo("Main menu selection: index=", selectedIndex.value());
 
-        // Assuming order: 0: Compose SMS, 1: View SMS
-        if (index == 0)
+        switch (selectedIndex.value())
         {
-            logger.logInfo("Compose SMS action selected - (Not Implemented Yet)");
-            // context.setState<ComposingSmsState>(); // Transition to compose state
+        case 0:
+        {
+            logger.logInfo("Compose SMS selected");
+            context.setState<ComposingSmsState>();
+            break;
         }
-        else if (index == 1)
+
+        case 1:
         {
-            logger.logInfo("View SMS action selected");
-            context.setState<ViewingSmsListState>(); // Transition to SMS list state
+            logger.logInfo("View SMS selected");
+            context.setState<ViewingSmsListState>();
+            break;
         }
-        else
+        case 2:
         {
-            logger.logInfo("Unknown main menu index selected: ", index);
+            logger.logInfo("Call selected");
+            context.user.showDialMode();
+            context.setState<CallingState>();
+            break;
+        }
+
+        default:
+            logger.logError("Invalid menu option selected: ", selectedIndex.value());
+            break;
         }
     }
 
     void ConnectedState::handleUiBack()
     {
-        // What should back do from the main menu? Nothing? Exit?
         logger.logInfo("Back action in main menu - ignored");
+    }
+
+    void ConnectedState::handleSmsSentResult(common::PhoneNumber to, bool success)
+    {
+        logger.logInfo("Received SMS send result for ", to, " while in main menu. Success: ", success);
+        if (!success)
+        {
+            if (!context.smsDb.markLastOutgoingSmsAsFailed())
+            {
+                logger.logInfo("Could not mark last outgoing SMS as failed.");
+            }
+            context.user.showAlert("SMS Failed", "Could not send SMS to " + common::to_string(to));
+        }
+    }
+
+    void ConnectedState::handleCallRequest(common::PhoneNumber from)
+    {
+        logger.logInfo("Handling incoming call request from: ", from);
+        context.setState<IncomingCallState>(from);
     }
 
 } // namespace ue

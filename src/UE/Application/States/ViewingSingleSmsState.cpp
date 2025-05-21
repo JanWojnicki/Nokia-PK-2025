@@ -2,6 +2,7 @@
 #include "ViewingSmsListState.hpp" // To go back
 #include "NotConnectedState.hpp"
 #include <stdexcept> // Include for exceptions
+#include "IncomingCallState.hpp"
 
 namespace ue
 {
@@ -14,22 +15,18 @@ namespace ue
         if (viewingSmsIndex >= allSms.size())
         {
             logger.logError("Invalid SMS index provided: ", viewingSmsIndex);
-            // Cannot recover easily here, maybe throw or go back to list?
-            // Going back to list state for safety.
             context.setState<ViewingSmsListState>();
-            // Throwing an exception might be better if this shouldn't happen
-            // throw std::out_of_range("Invalid SMS index in ViewingSingleSmsState");
-            return; // Return necessary if not throwing
+            return;
         }
 
         const SmsMessage &message = allSms[viewingSmsIndex];
-        logger.logInfo("Viewing SMS at index: ", viewingSmsIndex, ", From: ", message.from);
+        logger.logInfo("Viewing SMS at index: ", viewingSmsIndex, ", From: ", message.peer);
 
-        // Mark as read *before* showing
-        if (!message.isRead)
+        if (message.direction == SmsMessage::Direction::INCOMING &&
+            message.status == SmsMessage::Status::RECEIVED_UNREAD)
         {
             logger.logDebug("Marking SMS as read: index ", viewingSmsIndex);
-            context.smsDb.markAsRead(viewingSmsIndex); // Mark as read
+            context.smsDb.markAsRead(viewingSmsIndex);
         }
 
         // Show the message content via UserPort
@@ -38,8 +35,24 @@ namespace ue
 
     void ViewingSingleSmsState::handleUiBack()
     {
-        logger.logInfo("Back action from single SMS view.");
-        // Go back to the SMS list state
+        // Pobierz aktualne wiadomości i pokaż listę ponownie przed zmianą stanu
+        const auto &allSms = context.smsDb.getAllSms();
+        context.user.showSmsList(allSms);
+
+        context.setState<ViewingSmsListState>();
+    }
+
+    void ViewingSingleSmsState::handleUiAction(std::optional<std::size_t> selectedIndex)
+    {
+        if (!selectedIndex.has_value())
+        {
+            logger.logInfo("Action without index in single SMS view - switching to compose");
+            return;
+        }
+
+        logger.logInfo("UI action in single SMS view - returning to list");
+        const auto &allSms = context.smsDb.getAllSms();
+        context.user.showSmsList(allSms);
         context.setState<ViewingSmsListState>();
     }
 
@@ -53,10 +66,16 @@ namespace ue
     void ViewingSingleSmsState::handleSmsReceived(common::PhoneNumber from, std::string text)
     {
         logger.logInfo("SMS received while viewing another SMS (from: ", from, ")");
-        std::size_t smsIndex = context.smsDb.addSms(from, text);
+        std::size_t smsIndex = context.smsDb.addReceivedSms(from, text);
         logger.logDebug("SMS stored at index: ", smsIndex);
         context.user.showNewSms();
         // No need to refresh the current view, user will see it when they go back to list
+    }
+
+    void ViewingSingleSmsState::handleCallRequest(common::PhoneNumber from)
+    {
+        logger.logInfo("Incoming call while reading SMS from: ", from);
+        context.setState<IncomingCallState>(from);
     }
 
 } // namespace ue
