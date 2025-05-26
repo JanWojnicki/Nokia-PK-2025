@@ -23,6 +23,7 @@ namespace ue
         StrictMock<IEventsHandlerMock> handlerMock;
         StrictMock<IUeGuiMock> guiMock;                 // Keeping StrictMock for GUI interaction verification
         StrictMock<IListViewModeMock> listViewModeMock; // Mock for the list view mode
+        StrictMock<IDialModeMock> dialModeMock;
 
         UserPort objectUnderTest{loggerMock, guiMock, PHONE_NUMBER};
 
@@ -72,7 +73,9 @@ namespace ue
 
     TEST_F(UserPortTestSuite, shallShowDialMode)
     {
-        EXPECT_CALL(guiMock, setDialMode());
+        EXPECT_CALL(guiMock, setDialMode())
+            .WillOnce(ReturnRef(dialModeMock));
+
         objectUnderTest.showDialMode();
     }
 
